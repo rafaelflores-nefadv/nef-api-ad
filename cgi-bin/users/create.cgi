@@ -24,11 +24,12 @@ DOMAIN="$(echo "$BASE_DN" | sed 's/DC=//g; s/,DC=/./g')"
 UPN="${sam}@${DOMAIN}"
 
 # =========================
-# Criar objeto
+# 1️⃣ Criar objeto
 # =========================
-ldapadd -x \
+
+ldapadd_output=$(ldapadd -x \
 -H "$LDAP_URI" \
--D "$BIND_DN" -w "$BIND_PW" <<EOF 2>/dev/null || {
+-D "$BIND_DN" -w "$BIND_PW" <<EOF 2>&1
 dn: $USER_DN
 objectClass: top
 objectClass: person
@@ -42,13 +43,20 @@ userPrincipalName: $UPN
 $( [[ -n "$mail" ]] && echo "mail: $mail" )
 userAccountControl: 544
 EOF
+)
+
+if echo "$ldapadd_output" | grep -qi "error"; then
+    json_error "$ldapadd_output"
+    exit 1
+fi
 
 # =========================
-# Definir senha + ativar + forçar troca
+# 2️⃣ Definir senha + ativar + forçar troca
 # =========================
-ldapmodify -x \
+
+ldapmodify_output=$(ldapmodify -x \
 -H "$LDAP_URI" \
--D "$BIND_DN" -w "$BIND_PW" <<EOF 2>/dev/null || {
+-D "$BIND_DN" -w "$BIND_PW" <<EOF 2>&1
 dn: $USER_DN
 changetype: modify
 replace: unicodePwd
@@ -60,6 +68,12 @@ userAccountControl: 512
 replace: pwdLastSet
 pwdLastSet: 0
 EOF
+)
+
+if echo "$ldapmodify_output" | grep -qi "error"; then
+    json_error "$ldapmodify_output"
+    exit 1
+fi
 
 logger -t "nef-api-ad" "USER_CREATE sam=$sam"
 
