@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -u
+export LANG=en_US.UTF-8
 
-echo "Content-Type: application/json"
+echo "Content-Type: application/json; charset=UTF-8"
 echo ""
 
 source "$(dirname "$0")/../lib/common.sh"

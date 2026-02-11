@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Content-Type: application/json"
+echo "Content-Type: application/json; charset=UTF-8"
 echo ""
 
 source "$(dirname "$0")/../lib/common.sh"
