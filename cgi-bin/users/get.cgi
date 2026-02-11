@@ -1,62 +1,102 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
 echo "Content-Type: application/json"
 echo ""
 
 source "$(dirname "$0")/../lib/common.sh"
-
 validate_ldap_config
 
-# Get user by username
-get_user() {
-    local username="$1"
-    
-    if [[ -z "$username" ]]; then
-        json_error "username parameter is required"
-        return 1
-    fi
-    
-    local filter="(cn=$username)"
-    local ldap_output
-    
-    ldap_output=$(ldapsearch -H "$LDAP_URI" -D "$BIND_DN" -w "$BIND_PW" \
-        -b "ou=$USERS_OU,$BASE_DN" "$filter" \
-        "cn" "mail" "userAccountControl" "sn" "givenName" "description" 2>/dev/null || echo "")
-    
-    if [[ -z "$ldap_output" ]]; then
-        json_error "User not found"
-        return 1
-    fi
-    
-    local user_json="{}"
-    local status="disabled"
-    
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^cn:\ (.+) ]]; then
-            user_json=$(echo "$user_json" | jq --arg val "${BASH_REMATCH[1]}" '.cn = $val')
-        elif [[ "$line" =~ ^mail:\ (.+) ]]; then
-            user_json=$(echo "$user_json" | jq --arg val "${BASH_REMATCH[1]}" '.mail = $val')
-        elif [[ "$line" =~ ^sn:\ (.+) ]]; then
-            user_json=$(echo "$user_json" | jq --arg val "${BASH_REMATCH[1]}" '.sn = $val')
-        elif [[ "$line" =~ ^givenName:\ (.+) ]]; then
-            user_json=$(echo "$user_json" | jq --arg val "${BASH_REMATCH[1]}" '.givenName = $val')
-        elif [[ "$line" =~ ^description:\ (.+) ]]; then
-            user_json=$(echo "$user_json" | jq --arg val "${BASH_REMATCH[1]}" '.description = $val')
-        elif [[ "$line" =~ ^userAccountControl:\ (.+) ]]; then
-            local uac="${BASH_REMATCH[1]}"
+# =========================
+# Obter parâmetro
+# =========================
+
+sam=$(get_param "sAMAccountName" || true)
+
+if [[ -z "$sam" ]]; then
+    json_error "sAMAccountName parameter is required"
+    exit 1
+fi
+
+# =========================
+# Buscar usuário
+# =========================
+
+ldap_output=$(ldapsearch -x -LLL -o ldif-wrap=no \
+-H "$LDAP_URI" \
+-D "$BIND_DN" -w "$BIND_PW" \
+-b "$BASE_DN" \
+"(sAMAccountName=$sam)" \
+displayName givenName sn mail sAMAccountName userAccountControl memberOf 2>/dev/null)
+
+if [[ -z "$ldap_output" ]]; then
+    json_error "User not found"
+    exit 1
+fi
+
+displayName=""
+givenName=""
+sn=""
+mail=""
+status="enabled"
+groups=()
+
+while IFS= read -r line; do
+
+    case "$line" in
+        displayName:\ *)
+            displayName="${line#displayName: }"
+            ;;
+        givenName:\ *)
+            givenName="${line#givenName: }"
+            ;;
+        sn:\ *)
+            sn="${line#sn: }"
+            ;;
+        mail:\ *)
+            mail="${line#mail: }"
+            ;;
+        userAccountControl:\ *)
+            uac="${line#userAccountControl: }"
             if (( uac & 2 )); then
                 status="disabled"
             else
                 status="enabled"
             fi
-        fi
-    done <<< "$ldap_output"
-    
-    user_json=$(echo "$user_json" | jq --arg val "$status" '.status = $val')
-    json_success "$user_json"
-}
+            ;;
+        memberOf:\ *)
+            group_dn="${line#memberOf: }"
+            group_name=$(echo "$group_dn" | cut -d',' -f1 | sed 's/^CN=//')
+            groups+=("\"$group_name\"")
+            ;;
+    esac
 
-username=$(get_param "username" || true)
-log_action "USER_GET" "Getting user $username"
-get_user "$username"
+done <<< "$ldap_output"
+
+groups_json="[$(IFS=,; echo "${groups[*]}")]"
+
+# =========================
+# Montar JSON final
+# =========================
+
+user_json=$(jq -n \
+    --arg displayName "$displayName" \
+    --arg givenName "$givenName" \
+    --arg sn "$sn" \
+    --arg mail "$mail" \
+    --arg sam "$sam" \
+    --arg status "$status" \
+    --argjson groups "$groups_json" \
+    '{
+        sAMAccountName: $sam,
+        displayName: $displayName,
+        givenName: $givenName,
+        sn: $sn,
+        mail: $mail,
+        status: $status,
+        groups: $groups
+    }')
+
+log_action "USER_GET" "User retrieved: $sam"
+
+json_success "$user_json"
