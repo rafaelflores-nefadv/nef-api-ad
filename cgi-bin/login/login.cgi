@@ -23,7 +23,6 @@ login() {
         return 1
     fi
 
-    # Escape filtro LDAP
     local safe_user safe_system
     safe_user=$(printf '%s' "$username" | sed 's/[*()\\]/\\&/g')
     safe_system=$(printf '%s' "$system" | sed 's/[*()\\]/\\&/g')
@@ -44,16 +43,17 @@ login() {
     fi
 
     # Validar senha (bind como usuário)
-    if ! ldapwhoami -x \
+    if ! ldapsearch -x -LLL -o ldif-wrap=no \
         -H "$LDAP_URI" \
         -D "$user_dn" \
-        -w "$password" >/dev/null 2>&1; then
+        -w "$password" \
+        -b "$BASE_DN" "(objectClass=*)" dn >/dev/null 2>&1; then
 
         json_error "Invalid credentials"
         return 1
     fi
 
-    # Buscar DN do grupo do sistema
+    # Buscar DN do grupo
     local group_dn
     group_dn=$(ldapsearch -x -LLL -o ldif-wrap=no \
         -H "$LDAP_URI" \
@@ -68,21 +68,20 @@ login() {
         return 1
     fi
 
-    # Verificar se usuário pertence ao grupo
+    # Verificar memberOf no usuário
     local member_check
     member_check=$(ldapsearch -x -LLL -o ldif-wrap=no \
         -H "$LDAP_URI" \
         -D "$BIND_DN" \
         -w "$BIND_PW" \
-        -b "$group_dn" \
-        "(member=$user_dn)" dn)
+        -b "$BASE_DN" \
+        "(&(sAMAccountName=$safe_user)(memberOf=$group_dn))" dn)
 
     if ! echo "$member_check" | grep -q "^dn:"; then
         json_error "Invalid credentials"
         return 1
     fi
 
-    # Sucesso
     json_success "{\"username\":\"$username\",\"system\":\"$system\",\"message\":\"Authentication successful\"}"
 }
 
