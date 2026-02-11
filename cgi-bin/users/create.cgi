@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
 echo "Content-Type: application/json"
 echo ""
@@ -19,12 +19,23 @@ if [[ -z "$name" || -z "$sam" || -z "$password" ]]; then
     exit 1
 fi
 
+# =========================
+# Separar nome e sobrenome
+# =========================
+
+firstName=$(echo "$name" | awk '{print $1}')
+lastName=$(echo "$name" | cut -d' ' -f2-)
+
+if [[ -z "$lastName" ]]; then
+    lastName="$firstName"
+fi
+
 USER_DN="CN=$name,$USERS_OU"
 DOMAIN="$(echo "$BASE_DN" | sed 's/DC=//g; s/,DC=/./g')"
 UPN="${sam}@${DOMAIN}"
 
 # =========================
-# 1️⃣ Criar objeto
+# Criar objeto
 # =========================
 
 ldapadd_output=$(ldapadd -x \
@@ -38,6 +49,8 @@ objectClass: user
 cn: $name
 displayName: $name
 name: $name
+givenName: $firstName
+sn: $lastName
 sAMAccountName: $sam
 userPrincipalName: $UPN
 $( [[ -n "$mail" ]] && echo "mail: $mail" )
@@ -51,7 +64,7 @@ if echo "$ldapadd_output" | grep -qi "error"; then
 fi
 
 # =========================
-# 2️⃣ Definir senha + ativar + forçar troca
+# Definir senha + ativar + forçar troca
 # =========================
 
 ldapmodify_output=$(ldapmodify -x \
@@ -77,4 +90,4 @@ fi
 
 logger -t "nef-api-ad" "USER_CREATE sam=$sam"
 
-json_success "{\"sAMAccountName\":\"$sam\",\"message\":\"User created and must change password at first logon\"}"
+json_success "{\"sAMAccountName\":\"$sam\",\"message\":\"User created successfully and must change password at first logon\"}"
