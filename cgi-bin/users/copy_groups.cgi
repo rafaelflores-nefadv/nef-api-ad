@@ -18,7 +18,7 @@ if [[ -z "$source_sam" || -z "$target_sam" ]]; then
 fi
 
 # =====================================
-# Função segura para buscar DN
+# Função segura para buscar DN usuário, lidando com DN longos e codificados 
 # =====================================
 
 get_dn() {
