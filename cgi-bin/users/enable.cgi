@@ -1,34 +1,83 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
 echo "Content-Type: application/json"
 echo ""
 
 source "$(dirname "$0")/../lib/common.sh"
-
 validate_ldap_config
 
-# Enable user account (remove DISABLED flag)
-enable_user() {
-    local request
-    request=$(parse_json_input)
-    
-    local username
-    username=$(echo "$request" | jq -r '.username // empty' 2>/dev/null || echo "")
-    
-    if [[ -z "$username" ]]; then
-        json_error "username is required"
-        return 1
-    fi
-    
-    local output
-    if output=$(samba-tool user enable "$username" 2>&1); then
-        log_action "USER_ENABLE" "User enabled: $username"
-        json_success "{\"username\": \"$username\", \"status\": \"enabled\"}"
-    else
-        json_error "$output"
-        return 1
-    fi
-}
+input=$(cat)
 
-enable_user
+sam=$(echo "$input" | jq -r '.sAMAccountName // empty')
+
+if [[ -z "$sam" ]]; then
+    json_error "sAMAccountName is required"
+    exit 1
+fi
+
+# =========================
+# Buscar DN atual (em qualquer OU)
+# =========================
+
+USER_DN=$(ldapsearch -x -LLL -o ldif-wrap=no \
+-H "$LDAP_URI" \
+-D "$BIND_DN" -w "$BIND_PW" \
+-b "$BASE_DN" \
+"(sAMAccountName=$sam)" dn | awk '
+/^dn: / {print substr($0,5)}
+/^dn:: / {
+    cmd="echo " substr($0,6) " | base64 -d"
+    cmd | getline decoded
+    close(cmd)
+    print decoded
+}')
+
+if [[ -z "$USER_DN" ]]; then
+    json_error "User not found"
+    exit 1
+fi
+
+CURRENT_CN=$(echo "$USER_DN" | cut -d',' -f1)
+
+# =========================
+# 1️⃣ Ativar conta
+# =========================
+
+enable_output=$(ldapmodify -x \
+-H "$LDAP_URI" \
+-D "$BIND_DN" -w "$BIND_PW" <<EOF 2>&1
+dn: $USER_DN
+changetype: modify
+replace: userAccountControl
+userAccountControl: 512
+EOF
+)
+
+if echo "$enable_output" | grep -qi "error"; then
+    json_error "$enable_output"
+    exit 1
+fi
+
+# =========================
+# 2️⃣ Mover para OU Usuarios
+# =========================
+
+ACTIVE_OU="OU=Usuarios,OU=Nabarrete,DC=nabarrete,DC=local"
+
+move_output=$(ldapmodrdn -x \
+-H "$LDAP_URI" \
+-D "$BIND_DN" -w "$BIND_PW" \
+-r \
+-s "$ACTIVE_OU" \
+"$USER_DN" \
+"$CURRENT_CN" 2>&1)
+
+if echo "$move_output" | grep -qi "error"; then
+    json_error "$move_output"
+    exit 1
+fi
+
+logger -t "nef-api-ad" "USER_ENABLE sam=$sam"
+
+json_success "{\"sAMAccountName\":\"$sam\",\"status\":\"enabled and moved to Usuarios\"}"
