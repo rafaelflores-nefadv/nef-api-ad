@@ -76,3 +76,16 @@ validate_ldap_config() {
         fi
     done
 }
+
+# Validação de API Key
+validate_api_key() {
+    if [[ -z "${HTTP_X_API_KEY:-}" ]]; then
+        echo '{"success":false,"data":null,"error":"Unauthorized"}'
+        exit 1
+    fi
+
+    if [[ "$HTTP_X_API_KEY" != "$API_KEY" ]]; then
+        echo '{"success":false,"data":null,"error":"Unauthorized"}'
+        exit 1
+    fi
+}

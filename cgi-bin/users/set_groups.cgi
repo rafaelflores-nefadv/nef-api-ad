@@ -6,6 +6,7 @@ echo ""
 
 source "$(dirname "$0")/../lib/common.sh"
 validate_ldap_config
+validate_api_key
 
 input=$(cat)
 
