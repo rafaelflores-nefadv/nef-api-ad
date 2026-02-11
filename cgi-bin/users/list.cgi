@@ -10,11 +10,12 @@ validate_ldap_config
 
 # List all users in USERS_OU
 list_users() {
-    local filter="(objectClass=user)"
+    local filter="(&(objectCategory=person)(objectClass=user))"
     local ldap_output
     
-    ldap_output=$(ldapsearch -H "$LDAP_URI" -D "$BIND_DN" -w "$BIND_PW" \
-        -b "ou=$USERS_OU,$BASE_DN" "$filter" \
+    ldap_output=$(ldapsearch -LLL -H "$LDAP_URI" \
+        -D "$BIND_DN" -w "$BIND_PW" \
+        -b "$USERS_OU" "$filter" \
         "cn" "mail" "userAccountControl" "sn" "givenName" 2>/dev/null || echo "")
     
     if [[ -z "$ldap_output" ]]; then
