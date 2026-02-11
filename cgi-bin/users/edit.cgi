@@ -24,7 +24,7 @@ if [[ -z "$name" && -z "$mail" ]]; then
 fi
 
 # =========================
-# Buscar DN do usuário
+# Buscar DN atual
 # =========================
 
 USER_DN=$(ldapsearch -x -LLL -o ldif-wrap=no \
@@ -46,46 +46,53 @@ if [[ -z "$USER_DN" ]]; then
 fi
 
 # =========================
-# Criar arquivo LDIF temporário
+# 1️⃣ Alterar CN (se necessário)
 # =========================
 
-MOD_FILE=$(mktemp)
+if [[ -n "$name" ]]; then
+    ldapmodrdn_output=$(ldapmodrdn -x \
+    -H "$LDAP_URI" \
+    -D "$BIND_DN" -w "$BIND_PW" \
+    "$USER_DN" "CN=$name" 2>&1)
 
-{
-  echo "dn: $USER_DN"
-  echo "changetype: modify"
+    if echo "$ldapmodrdn_output" | grep -qi "error"; then
+        json_error "$ldapmodrdn_output"
+        exit 1
+    fi
 
-  if [[ -n "$name" ]]; then
-    echo "replace: cn"
-    echo "cn: $name"
-    echo "-"
-    echo "replace: displayName"
-    echo "displayName: $name"
-    echo "-"
-  fi
+    # atualizar DN após rename
+    USER_DN="CN=$name,$USERS_OU"
 
-  if [[ -n "$mail" ]]; then
-    echo "replace: mail"
-    echo "mail: $mail"
-    echo "-"
-  fi
-
-} > "$MOD_FILE"
+    # atualizar displayName
+    ldapmodify -x \
+    -H "$LDAP_URI" \
+    -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
+dn: $USER_DN
+changetype: modify
+replace: displayName
+displayName: $name
+EOF
+fi
 
 # =========================
-# Executar modificação
+# 2️⃣ Alterar mail (se necessário)
 # =========================
 
-ldapmodify_output=$(ldapmodify -x \
--H "$LDAP_URI" \
--D "$BIND_DN" -w "$BIND_PW" \
--f "$MOD_FILE" 2>&1)
+if [[ -n "$mail" ]]; then
+    ldapmodify_output=$(ldapmodify -x \
+    -H "$LDAP_URI" \
+    -D "$BIND_DN" -w "$BIND_PW" <<EOF 2>&1
+dn: $USER_DN
+changetype: modify
+replace: mail
+mail: $mail
+EOF
+)
 
-rm -f "$MOD_FILE"
-
-if echo "$ldapmodify_output" | grep -qi "error"; then
-    json_error "$ldapmodify_output"
-    exit 1
+    if echo "$ldapmodify_output" | grep -qi "error"; then
+        json_error "$ldapmodify_output"
+        exit 1
+    fi
 fi
 
 logger -t "nef-api-ad" "USER_EDIT sam=$sam"
