@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+# Import environment variables safely
+LDAP_URI="${LDAP_URI:-}"
+BIND_DN="${BIND_DN:-}"
+BIND_PW="${BIND_PW:-}"
+BASE_DN="${BASE_DN:-}"
+USERS_OU="${USERS_OU:-}"
+
 set -euo pipefail
 
 # Output JSON success response
@@ -61,9 +69,10 @@ escape_ldif() {
 
 # Validate required LDAP environment variables
 validate_ldap_config() {
-    require_env "LDAP_URI"
-    require_env "BIND_DN"
-    require_env "BIND_PW"
-    require_env "BASE_DN"
-    require_env "USERS_OU"
+    for var in LDAP_URI BIND_DN BIND_PW BASE_DN USERS_OU; do
+        if [[ -z "${!var:-}" ]]; then
+            json_error "Environment variable $var is not set"
+            exit 1
+        fi
+    done
 }
