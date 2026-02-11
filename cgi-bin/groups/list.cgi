@@ -7,7 +7,8 @@ echo ""
 source "$(dirname "$0")/../lib/common.sh"
 validate_ldap_config
 
-BASE_GROUP_DN="$GROUPS_OU,$BASE_DN"
+# GROUPS_OU já contém o DN completo (não concatenar com BASE_DN)
+BASE_GROUP_DN="$GROUPS_OU"
 
 ldap_output=$(ldapsearch -LLL -H "$LDAP_URI" \
 -D "$BIND_DN" -w "$BIND_PW" \
