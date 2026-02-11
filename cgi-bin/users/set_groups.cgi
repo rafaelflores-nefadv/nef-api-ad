@@ -10,7 +10,7 @@ validate_ldap_config
 input=$(cat)
 
 sam=$(echo "$input" | jq -r '.sAMAccountName // empty')
-groups=$(echo "$input" | jq -r '.groups[]?' 2>/dev/null)
+groups_json=$(echo "$input" | jq -c '.groups // []')
 
 if [[ -z "$sam" ]]; then
     json_error "sAMAccountName is required"
@@ -40,16 +40,17 @@ if [[ -z "$USER_DN" ]]; then
 fi
 
 # =========================
-# Remover de todos os grupos atuais
+# Remover usuário de todos os grupos atuais
 # =========================
 
-CURRENT_GROUPS=$(ldapsearch -x -LLL -o ldif-wrap=no \
+ldapsearch -x -LLL -o ldif-wrap=no \
 -H "$LDAP_URI" \
 -D "$BIND_DN" -w "$BIND_PW" \
 -b "$BASE_DN" \
-"(sAMAccountName=$sam)" memberOf | awk '/^memberOf: / {print substr($0,11)}')
+"(sAMAccountName=$sam)" memberOf | \
+awk '/^memberOf: / {print substr($0,11)}' | \
+while IFS= read -r group_dn; do
 
-for group_dn in $CURRENT_GROUPS; do
     ldapmodify -x \
     -H "$LDAP_URI" \
     -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
@@ -58,19 +59,20 @@ changetype: modify
 delete: member
 member: $USER_DN
 EOF
+
 done
 
 # =========================
-# Adicionar aos grupos recebidos
+# Adicionar aos grupos enviados
 # =========================
 
-for group in $groups; do
+echo "$groups_json" | jq -r '.[]' | while IFS= read -r group_name; do
 
     GROUP_DN=$(ldapsearch -x -LLL -o ldif-wrap=no \
     -H "$LDAP_URI" \
     -D "$BIND_DN" -w "$BIND_PW" \
     -b "$BASE_DN" \
-    "(cn=$group)" dn | awk '/^dn: / {print substr($0,5)}')
+    "(cn=$group_name)" dn | awk '/^dn: / {print substr($0,5)}')
 
     if [[ -n "$GROUP_DN" ]]; then
         ldapmodify -x \
