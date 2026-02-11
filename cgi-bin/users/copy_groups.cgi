@@ -17,16 +17,16 @@ if [[ -z "$source_sam" || -z "$target_sam" ]]; then
     exit 1
 fi
 
-# =========================
-# Função para buscar DN
-# =========================
+# =====================================
+# Função segura para buscar DN
+# =====================================
 
 get_dn() {
     ldapsearch -x -LLL -o ldif-wrap=no \
-    -H "$LDAP_URI" \
-    -D "$BIND_DN" -w "$BIND_PW" \
-    -b "$BASE_DN" \
-    "(sAMAccountName=$1)" dn | \
+        -H "$LDAP_URI" \
+        -D "$BIND_DN" -w "$BIND_PW" \
+        -b "$BASE_DN" \
+        "(sAMAccountName=$1)" dn | \
     while IFS= read -r line; do
         case "$line" in
             dn:\ *)
@@ -52,15 +52,16 @@ if [[ -z "$TARGET_DN" ]]; then
     exit 1
 fi
 
-# =========================
-# Remover target de todos grupos atuais
-# =========================
+# =====================================
+# Remover target de todos os grupos atuais
+# =====================================
 
 ldapsearch -x -LLL -o ldif-wrap=no \
--H "$LDAP_URI" \
--D "$BIND_DN" -w "$BIND_PW" \
--b "$TARGET_DN" "(objectClass=user)" memberOf | \
+    -H "$LDAP_URI" \
+    -D "$BIND_DN" -w "$BIND_PW" \
+    -b "$TARGET_DN" "(objectClass=user)" memberOf | \
 while IFS= read -r line; do
+
     case "$line" in
         memberOf:\ *)
             GROUP_DN="${line#memberOf: }"
@@ -74,8 +75,8 @@ while IFS= read -r line; do
     esac
 
     ldapmodify -x \
-    -H "$LDAP_URI" \
-    -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
+        -H "$LDAP_URI" \
+        -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
 dn: $GROUP_DN
 changetype: modify
 delete: member
@@ -84,15 +85,16 @@ EOF
 
 done
 
-# =========================
-# Copiar grupos do source
-# =========================
+# =====================================
+# Copiar grupos do source para target
+# =====================================
 
 ldapsearch -x -LLL -o ldif-wrap=no \
--H "$LDAP_URI" \
--D "$BIND_DN" -w "$BIND_PW" \
--b "$SOURCE_DN" "(objectClass=user)" memberOf | \
+    -H "$LDAP_URI" \
+    -D "$BIND_DN" -w "$BIND_PW" \
+    -b "$SOURCE_DN" "(objectClass=user)" memberOf | \
 while IFS= read -r line; do
+
     case "$line" in
         memberOf:\ *)
             GROUP_DN="${line#memberOf: }"
@@ -106,8 +108,8 @@ while IFS= read -r line; do
     esac
 
     ldapmodify -x \
-    -H "$LDAP_URI" \
-    -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
+        -H "$LDAP_URI" \
+        -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
 dn: $GROUP_DN
 changetype: modify
 add: member
@@ -118,4 +120,4 @@ done
 
 logger -t "nef-api-ad" "USER_COPY_GROUPS from=$source_sam to=$target_sam"
 
-json_success "{\"message\":\"Groups copied successfully\",\"source\":\"$source_sam\",\"target\":\"$target_sam\"}"
+json_success "{\"source\":\"$source_sam\",\"target\":\"$target_sam\",\"message\":\"Groups copied successfully\"}"
