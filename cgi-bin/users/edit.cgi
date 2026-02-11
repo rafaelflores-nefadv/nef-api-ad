@@ -24,14 +24,21 @@ if [[ -z "$name" && -z "$mail" ]]; then
 fi
 
 # =========================
-# Localizar DN do usuário
+# Buscar DN do usuário
 # =========================
 
-USER_DN=$(ldapsearch -x -LLL \
+USER_DN=$(ldapsearch -x -LLL -o ldif-wrap=no \
 -H "$LDAP_URI" \
 -D "$BIND_DN" -w "$BIND_PW" \
 -b "$USERS_OU" \
-"(sAMAccountName=$sam)" dn | awk '/^dn:/ {print substr($0,5)}')
+"(sAMAccountName=$sam)" dn | awk '
+/^dn: / {print substr($0,5)}
+/^dn:: / {
+    cmd="echo " substr($0,6) " | base64 -d"
+    cmd | getline decoded
+    close(cmd)
+    print decoded
+}')
 
 if [[ -z "$USER_DN" ]]; then
     json_error "User not found"
@@ -39,29 +46,35 @@ if [[ -z "$USER_DN" ]]; then
 fi
 
 # =========================
-# Montar modificações
+# Criar arquivo LDIF temporário
 # =========================
 
 MOD_FILE=$(mktemp)
 
-echo "dn: $USER_DN" >> "$MOD_FILE"
-echo "changetype: modify" >> "$MOD_FILE"
+{
+  echo "dn: $USER_DN"
+  echo "changetype: modify"
 
-if [[ -n "$name" ]]; then
-    echo "replace: cn" >> "$MOD_FILE"
-    echo "cn: $name" >> "$MOD_FILE"
-    echo "-" >> "$MOD_FILE"
+  if [[ -n "$name" ]]; then
+    echo "replace: cn"
+    echo "cn: $name"
+    echo "-"
+    echo "replace: displayName"
+    echo "displayName: $name"
+    echo "-"
+  fi
 
-    echo "replace: displayName" >> "$MOD_FILE"
-    echo "displayName: $name" >> "$MOD_FILE"
-    echo "-" >> "$MOD_FILE"
-fi
+  if [[ -n "$mail" ]]; then
+    echo "replace: mail"
+    echo "mail: $mail"
+    echo "-"
+  fi
 
-if [[ -n "$mail" ]]; then
-    echo "replace: mail" >> "$MOD_FILE"
-    echo "mail: $mail" >> "$MOD_FILE"
-    echo "-" >> "$MOD_FILE"
-fi
+} > "$MOD_FILE"
+
+# =========================
+# Executar modificação
+# =========================
 
 ldapmodify_output=$(ldapmodify -x \
 -H "$LDAP_URI" \
