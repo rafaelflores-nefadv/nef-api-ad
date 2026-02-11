@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/bash
+
 set -u
 export LANG=en_US.UTF-8
 
