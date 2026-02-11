@@ -18,7 +18,7 @@ if [[ -z "$source_sam" || -z "$target_sam" ]]; then
 fi
 
 # =========================
-# Buscar DN dos usuários
+# Função para buscar DN
 # =========================
 
 get_dn() {
@@ -26,14 +26,17 @@ get_dn() {
     -H "$LDAP_URI" \
     -D "$BIND_DN" -w "$BIND_PW" \
     -b "$BASE_DN" \
-    "(sAMAccountName=$1)" dn | awk '
-    /^dn: / {print substr($0,5)}
-    /^dn:: / {
-        cmd="echo " substr($0,6) " | base64 -d"
-        cmd | getline decoded
-        close(cmd)
-        print decoded
-    }'
+    "(sAMAccountName=$1)" dn | \
+    while IFS= read -r line; do
+        case "$line" in
+            dn:\ *)
+                echo "${line#dn: }"
+                ;;
+            dn::\ *)
+                printf '%s' "${line#dn:: }" | base64 -d
+                ;;
+        esac
+    done
 }
 
 SOURCE_DN=$(get_dn "$source_sam")
@@ -56,15 +59,24 @@ fi
 ldapsearch -x -LLL -o ldif-wrap=no \
 -H "$LDAP_URI" \
 -D "$BIND_DN" -w "$BIND_PW" \
--b "$BASE_DN" \
-"(sAMAccountName=$target_sam)" memberOf | \
-awk '/^memberOf: / {print substr($0,11)}' | \
-while IFS= read -r group_dn; do
+-b "$TARGET_DN" "(objectClass=user)" memberOf | \
+while IFS= read -r line; do
+    case "$line" in
+        memberOf:\ *)
+            GROUP_DN="${line#memberOf: }"
+            ;;
+        memberOf::\ *)
+            GROUP_DN=$(printf '%s' "${line#memberOf:: }" | base64 -d)
+            ;;
+        *)
+            continue
+            ;;
+    esac
 
     ldapmodify -x \
     -H "$LDAP_URI" \
     -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
-dn: $group_dn
+dn: $GROUP_DN
 changetype: modify
 delete: member
 member: $TARGET_DN
@@ -79,15 +91,24 @@ done
 ldapsearch -x -LLL -o ldif-wrap=no \
 -H "$LDAP_URI" \
 -D "$BIND_DN" -w "$BIND_PW" \
--b "$BASE_DN" \
-"(sAMAccountName=$source_sam)" memberOf | \
-awk '/^memberOf: / {print substr($0,11)}' | \
-while IFS= read -r group_dn; do
+-b "$SOURCE_DN" "(objectClass=user)" memberOf | \
+while IFS= read -r line; do
+    case "$line" in
+        memberOf:\ *)
+            GROUP_DN="${line#memberOf: }"
+            ;;
+        memberOf::\ *)
+            GROUP_DN=$(printf '%s' "${line#memberOf:: }" | base64 -d)
+            ;;
+        *)
+            continue
+            ;;
+    esac
 
     ldapmodify -x \
     -H "$LDAP_URI" \
     -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
-dn: $group_dn
+dn: $GROUP_DN
 changetype: modify
 add: member
 member: $TARGET_DN
