@@ -34,7 +34,13 @@ BEGIN {
     }
     cn=""; desc=""; count=0
 }
-/^cn:/ {
+/^cn:: / {
+    sub(/^cn:: /, "")
+    cmd = "echo " $0 " | base64 -d"
+    cmd | getline cn
+    close(cmd)
+}
+/^cn: / {
     sub(/^cn: /, "")
     cn=$0
 }
