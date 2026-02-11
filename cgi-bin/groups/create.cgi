@@ -21,8 +21,7 @@ create_group() {
         return 1
     fi
 
-    local base_dn="OU=Grupos,OU=Nabarrete,$LDAP_BASE_DN"
-    local group_dn="CN=$groupname,$base_dn"
+    local group_dn="CN=$groupname,$GROUPS_OU"
 
     local ldif
     ldif=$(mktemp)
@@ -40,8 +39,8 @@ create_group() {
     } > "$ldif"
 
     if ldapadd -x \
-        -D "$LDAP_ADMIN_DN" \
-        -w "$LDAP_ADMIN_PASSWORD" \
+        -D "$BIND_DN" \
+        -w "$BIND_PW" \
         -H "$LDAP_URI" \
         -f "$ldif" 2>/tmp/ldap_error; then
 
