@@ -21,7 +21,6 @@ add_member() {
         return 1
     fi
 
-    # Aceita array obrigatório
     local members_json
     members_json=$(echo "$request" | jq -c '.members // empty')
 
@@ -30,19 +29,19 @@ add_member() {
         return 1
     fi
 
-    # Escape filtro
+    # Escape filtro LDAP
     local safe_group
     safe_group=$(printf '%s' "$groupname" | sed 's/[*()\\]/\\&/g')
 
-    # Buscar DN do grupo
+    # Buscar DN do grupo (SEM WRAP)
     local group_dn
-    group_dn=$(ldapsearch -x \
+    group_dn=$(ldapsearch -x -LLL -o ldif-wrap=no \
         -H "$LDAP_URI" \
         -D "$BIND_DN" \
         -w "$BIND_PW" \
         -b "$GROUPS_OU" \
         "(sAMAccountName=$safe_group)" dn | \
-        grep "^dn:" | head -1 | cut -d' ' -f2-)
+        awk '/^dn:/ {print substr($0,5)}')
 
     if [[ -z "$group_dn" ]]; then
         json_error "Group not found"
@@ -52,27 +51,35 @@ add_member() {
     local ldif
     ldif=$(mktemp)
 
-    echo "dn: $group_dn" > "$ldif"
-    echo "changetype: modify" >> "$ldif"
-    echo "add: member" >> "$ldif"
+    {
+        echo "dn: $group_dn"
+        echo "changetype: modify"
+        echo "add: member"
+    } > "$ldif"
 
-    # Iterar membros
-    echo "$members_json" | jq -r '.[]' | while read -r member; do
+    # Iterar membros sem subshell
+    local count
+    count=$(echo "$members_json" | jq 'length')
+
+    for ((i=0; i<count; i++)); do
+
+        local member safe_member user_dn
+        member=$(echo "$members_json" | jq -r ".[$i]")
 
         safe_member=$(printf '%s' "$member" | sed 's/[*()\\]/\\&/g')
 
-        user_dn=$(ldapsearch -x \
+        user_dn=$(ldapsearch -x -LLL -o ldif-wrap=no \
             -H "$LDAP_URI" \
             -D "$BIND_DN" \
             -w "$BIND_PW" \
-            -b "$USERS_OU" \
+            -b "$BASE_DN" \
             "(sAMAccountName=$safe_member)" dn | \
-            grep "^dn:" | head -1 | cut -d' ' -f2-)
+            awk '/^dn:/ {print substr($0,5)}')
 
         if [[ -z "$user_dn" ]]; then
             rm -f "$ldif"
             json_error "User not found: $member"
-            exit 1
+            return 1
         fi
 
         echo "member: $user_dn" >> "$ldif"
@@ -88,6 +95,7 @@ add_member() {
         log_action "GROUP_ADD_MEMBERS" "Members added to $groupname"
         json_success "{\"groupname\":\"$groupname\",\"members\":$members_json,\"message\":\"Members added successfully\"}"
     else
+        local error
         error=$(cat /tmp/ldap_error)
         json_error "$error"
         rm -f "$ldif"
