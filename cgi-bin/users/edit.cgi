@@ -24,7 +24,7 @@ if [[ -z "$name" && -z "$mail" ]]; then
 fi
 
 # =========================
-# Buscar DN atual
+# Buscar DN do usuário
 # =========================
 
 USER_DN=$(ldapsearch -x -LLL -o ldif-wrap=no \
@@ -46,53 +46,22 @@ if [[ -z "$USER_DN" ]]; then
 fi
 
 # =========================
-# 1️⃣ Alterar CN (se necessário)
+# Aplicar alterações
 # =========================
 
-if [[ -n "$name" ]]; then
-    ldapmodrdn_output=$(ldapmodrdn -x \
-    -H "$LDAP_URI" \
-    -D "$BIND_DN" -w "$BIND_PW" \
-    "$USER_DN" "CN=$name" 2>&1)
-
-    if echo "$ldapmodrdn_output" | grep -qi "error"; then
-        json_error "$ldapmodrdn_output"
-        exit 1
-    fi
-
-    # atualizar DN após rename
-    USER_DN="CN=$name,$USERS_OU"
-
-    # atualizar displayName
-    ldapmodify -x \
-    -H "$LDAP_URI" \
-    -D "$BIND_DN" -w "$BIND_PW" <<EOF >/dev/null 2>&1
+ldapmodify_output=$(ldapmodify -x \
+-H "$LDAP_URI" \
+-D "$BIND_DN" -w "$BIND_PW" <<EOF 2>&1
 dn: $USER_DN
 changetype: modify
-replace: displayName
-displayName: $name
-EOF
-fi
-
-# =========================
-# 2️⃣ Alterar mail (se necessário)
-# =========================
-
-if [[ -n "$mail" ]]; then
-    ldapmodify_output=$(ldapmodify -x \
-    -H "$LDAP_URI" \
-    -D "$BIND_DN" -w "$BIND_PW" <<EOF 2>&1
-dn: $USER_DN
-changetype: modify
-replace: mail
-mail: $mail
+$( [[ -n "$name" ]] && echo -e "replace: displayName\ndisplayName: $name\n-" )
+$( [[ -n "$mail" ]] && echo -e "replace: mail\nmail: $mail\n-" )
 EOF
 )
 
-    if echo "$ldapmodify_output" | grep -qi "error"; then
-        json_error "$ldapmodify_output"
-        exit 1
-    fi
+if echo "$ldapmodify_output" | grep -qi "error"; then
+    json_error "$ldapmodify_output"
+    exit 1
 fi
 
 logger -t "nef-api-ad" "USER_EDIT sam=$sam"
