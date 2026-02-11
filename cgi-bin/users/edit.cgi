@@ -46,6 +46,19 @@ if [[ -z "$USER_DN" ]]; then
 fi
 
 # =========================
+# Separar nome e sobrenome
+# =========================
+
+if [[ -n "$name" ]]; then
+    firstName=$(echo "$name" | awk '{print $1}')
+    lastName=$(echo "$name" | cut -d' ' -f2-)
+
+    if [[ -z "$lastName" ]]; then
+        lastName="$firstName"
+    fi
+fi
+
+# =========================
 # Aplicar alterações
 # =========================
 
@@ -55,6 +68,8 @@ ldapmodify_output=$(ldapmodify -x \
 dn: $USER_DN
 changetype: modify
 $( [[ -n "$name" ]] && echo -e "replace: displayName\ndisplayName: $name\n-" )
+$( [[ -n "$name" ]] && echo -e "replace: givenName\ngivenName: $firstName\n-" )
+$( [[ -n "$name" ]] && echo -e "replace: sn\nsn: $lastName\n-" )
 $( [[ -n "$mail" ]] && echo -e "replace: mail\nmail: $mail\n-" )
 EOF
 )
